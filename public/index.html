@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stockyard – Inventory & Warehouse</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#E8ECF0;--panel:#fff;--ink:#17222D;--mute:#5A6876;--line:#CBD3DB;--blue:#1F4FD8;--tag:#F4C430;--red:#C8362B;--green:#1E7F4F}
+@media(prefers-color-scheme:dark){:root{--bg:#10161C;--panel:#18212A;--ink:#E7ECF1;--mute:#93A1AF;--line:#2B3946;--blue:#6D93FF;--tag:#F4C430;--red:#FF7A6E;--green:#4CC38A}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Archivo,system-ui,sans-serif;display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+nav{background:var(--ink);color:var(--bg);padding:20px 12px;position:sticky;top:0;height:100vh}
+nav h1{font-size:20px;font-weight:800;margin:0 8px 20px;letter-spacing:-.02em}
+nav button{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;padding:9px 10px;border-radius:4px;font:inherit;cursor:pointer;opacity:.75}
+nav button:hover{opacity:1}nav button.on{opacity:1;background:rgba(255,255,255,.14);box-shadow:inset 3px 0 var(--tag)}
+main{padding:28px 32px;max-width:1100px}h2{font-size:26px;font-weight:800;margin:0 0 18px;letter-spacing:-.02em}h3{font-size:16px;margin:26px 0 8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;margin-bottom:18px}
+form{display:flex;flex-wrap:wrap;gap:10px;align-items:end}label{display:flex;flex-direction:column;font-size:12px;color:var(--mute);gap:3px;flex:1 1 140px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px}
+button.btn{font:inherit;font-weight:700;background:var(--blue);color:#fff;border:0;border-radius:4px;padding:9px 16px;cursor:pointer}button.btn.ghost{background:none;color:var(--blue);border:1px solid var(--blue)}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.tbl{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}th{text-align:left;font-size:12px;color:var(--mute);font-weight:500;border-bottom:2px solid var(--ink);padding:6px 8px}
+td{padding:8px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:1px 8px;border-radius:3px;font-size:12px;font-weight:700;background:var(--tag);color:#17222D}.tag.ok{background:var(--green);color:#fff}.tag.bad{background:var(--red);color:#fff}
+.line{display:flex;gap:10px;flex:1 1 100%;flex-wrap:wrap}.empty{color:var(--mute);padding:14px 0}
+#toast{position:fixed;right:20px;bottom:20px;padding:12px 16px;border-radius:5px;color:#fff;font-weight:500;display:none;max-width:360px}
+@media(max-width:720px){body{grid-template-columns:1fr}nav{position:static;height:auto;display:flex;flex-wrap:wrap}nav h1{width:100%}nav button{width:auto}main{padding:18px}}
+</style></head><body>
+<nav><h1>Stockyard</h1><div id="tabs"></div></nav><main id="main"></main><div id="toast" role="status"></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=v=>'₹'+Number(v||0).toLocaleString('en-IN'),dt=v=>new Date(v).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+async function api(u,body){const r=await fetch('/api'+u,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d}
+function toast(m,ok=true){const t=$('#toast');t.textContent=m;t.style.background=ok?'var(--green)':'var(--red)';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',3500)}
+const table=(cols,rows)=>rows.length?`<div class="tbl"><table><tr>${cols.map(c=>`<th class="${c[2]||''}">${c[0]}</th>`).join('')}</tr>${rows.map(r=>`<tr>${cols.map(c=>`<td class="${c[2]||''}">${typeof c[1]==='function'?c[1](r):esc(r[c[1]])}</td>`).join('')}</tr>`).join('')}</table></div>`:'<div class="empty">Nothing here yet.</div>';
+const opts=(rows,v,l)=>rows.map(r=>`<option value="${r[v]}">${esc(typeof l==='function'?l(r):r[l])}</option>`).join('');
+const field=(name,label,type='text',extra='')=>`<label>${label}<input name="${name}" type="${type}" ${extra}></label>`;
+const sel=(name,label,html)=>`<label>${label}<select name="${name}" required>${html}</select></label>`;
+function onSubmit(id,fn){const f=$(id);if(!f)return;f.onsubmit=async e=>{e.preventDefault();try{await fn(Object.fromEntries(new FormData(f)),f);}catch(err){toast(err.message,false)}}}
+function lineForm(id,products,warehouses,withCost){ // repeating item rows
+  const row=()=>`<div class="line">${sel('product_id[]','Product',opts(products,'product_id','product_name'))}${warehouses?sel('warehouse_id[]','Warehouse',opts(warehouses,'warehouse_id','warehouse_name')):''}${field('quantity[]','Quantity','number','min=1 required')}${withCost?field('unit_cost[]','Unit cost','number','min=0 step=0.01 required'):''}</div>`;
+  const box=$(id+' .lines');box.innerHTML=row();$(id+' .add').onclick=()=>box.insertAdjacentHTML('beforeend',row());
+  return f=>[...box.children].map(r=>{const g=n=>r.querySelector(`[name="${n}[]"]`)?.value;return{product_id:+g('product_id'),warehouse_id:g('warehouse_id')?+g('warehouse_id'):undefined,quantity:+g('quantity'),unit_cost:g('unit_cost')}})}
+
+const views={
+async Dashboard(){const[low,fast,mon]=await Promise.all([api('/reports/low-stock'),api('/reports/fast-moving'),api('/reports/monthly-movement')]);
+ return`<h2>Dashboard</h2><div class="card"><h3 style="margin-top:0">Products at or below reorder level</h3>${table([['SKU','sku'],['Product','product_name'],['Category','category_name'],['In stock','total_stock','n'],['Reorder level','reorder_level','n'],['Order at least','shortfall','n',],['',r=>`<span class="tag">${r.total_stock==0?'Out':'Low'}</span>`]],low)}</div>
+ <div class="card"><h3 style="margin-top:0">Fast movers, last 30 days</h3>${table([['SKU','sku'],['Product','product_name'],['Units sold','units_sold','n'],['Orders','orders','n'],['Revenue',r=>money(r.revenue),'n']],fast)}</div>
+ <div class="card"><h3 style="margin-top:0">Monthly stock movement</h3>${table([['Month','month'],['Product','product_name'],['In','inflow','n'],['Out','outflow','n'],['Transferred','transferred','n'],['Net','net_change','n'],['Trend',r=>`<span class="tag ${r.status=='Accumulating'?'ok':r.status=='Depleting'?'bad':''}">${r.status}</span>`]],mon)}</div>`},
+async Products(){const[p,c]=await Promise.all([api('/products'),api('/categories')]);
+ return{html:`<h2>Products</h2><div class="card"><form id="f">${field('sku','SKU','text','required')}${field('product_name','Name','text','required')}${sel('category_id','Category',opts(c,'category_id','category_name'))}${field('unit_price','Price','number','min=0 step=0.01 required')}${field('reorder_level','Reorder level','number','min=0 value=10')}<button class="btn">Add product</button></form></div><div class="card">${table([['SKU','sku'],['Product','product_name'],['Category','category_name'],['Price',r=>money(r.unit_price),'n'],['Reorder at','reorder_level','n']],p)}</div>`,
+ bind(){onSubmit('#f',async d=>{await api('/products',d);toast('Product added');go('Products')})}}},
+async Inventory(){const i=await api('/inventory');return`<h2>Inventory by warehouse</h2><div class="card">${table([['SKU','sku'],['Product','product_name'],['Warehouse','warehouse_name'],['On hand','quantity_on_hand','n'],['Updated',r=>dt(r.last_updated)]],i)}</div>`},
+async Purchasing(){const[s,p,w,po]=await Promise.all([api('/suppliers'),api('/products'),api('/warehouses'),api('/purchase-orders')]);
+ return{html:`<h2>Purchase orders</h2><div class="card"><form id="f">${sel('supplier_id','Supplier',opts(s,'supplier_id','supplier_name'))}<div class="lines" style="flex:1 1 100%"></div><button type="button" class="btn ghost add">Add item</button><button class="btn">Create order</button></form></div>
+ <div class="card">${table([['#','po_id'],['Date',r=>dt(r.order_date)],['Supplier','supplier_name'],['Items','items'],['Total',r=>money(r.total),'n'],['Status',r=>`<span class="tag ${r.status=='RECEIVED'?'ok':''}">${r.status}</span>`],['Receive into',r=>r.status=='PENDING'?`<select id="w${r.po_id}">${opts(w,'warehouse_id','warehouse_name')}</select> <button class="btn ghost rcv" data-id="${r.po_id}">Receive</button>`:'']],po)}</div>`,
+ bind(){const get=lineForm('#f',p,null,true);onSubmit('#f',async d=>{await api('/purchase-orders',{supplier_id:+d.supplier_id,items:get().map(i=>({...i,unit_cost:+i.unit_cost}))});toast('Order created');go('Purchasing')});
+ document.querySelectorAll('.rcv').forEach(b=>b.onclick=async()=>{try{await api(`/purchase-orders/${b.dataset.id}/receive`,{warehouse_id:+$('#w'+b.dataset.id).value});toast('Stock received');go('Purchasing')}catch(e){toast(e.message,false)}})}}},
+async Sales(){const[p,w,s]=await Promise.all([api('/products'),api('/warehouses'),api('/sales')]);
+ return{html:`<h2>Sales</h2><div class="card"><form id="f">${field('customer_name','Customer','text','required')}<div class="lines" style="flex:1 1 100%"></div><button type="button" class="btn ghost add">Add item</button><button class="btn">Complete sale</button></form></div><div class="card">${table([['#','sale_id'],['Date',r=>dt(r.sale_date)],['Customer','customer_name'],['Items','items'],['Total',r=>money(r.total),'n']],s)}</div>`,
+ bind(){const get=lineForm('#f',p,w,false);onSubmit('#f',async d=>{await api('/sales',{customer_name:d.customer_name,items:get()});toast('Sale completed');go('Sales')})}}},
+async Transfers(){const[p,w,m]=await Promise.all([api('/products'),api('/warehouses'),api('/movements')]);
+ return{html:`<h2>Transfers & movement log</h2><div class="card"><form id="f">${sel('product_id','Product',opts(p,'product_id','product_name'))}${sel('source_warehouse_id','From',opts(w,'warehouse_id','warehouse_name'))}${sel('target_warehouse_id','To',opts(w,'warehouse_id','warehouse_name'))}${field('quantity','Quantity','number','min=1 required')}<button class="btn">Transfer stock</button></form></div><div class="card"><h3 style="margin-top:0">Latest 50 movements</h3>${table([['When',r=>dt(r.created_at)],['Product','product_name'],['Type','movement_type'],['Qty','quantity','n'],['From','from_wh'],['To','to_wh']],m)}</div>`,
+ bind(){onSubmit('#f',async d=>{await api('/transfers',{product_id:+d.product_id,source_warehouse_id:+d.source_warehouse_id,target_warehouse_id:+d.target_warehouse_id,quantity:+d.quantity});toast('Stock transferred');go('Transfers')})}}},
+async Setup(){const[c,s,w]=await Promise.all([api('/categories'),api('/suppliers'),api('/warehouses')]);
+ return{html:`<h2>Setup</h2><div class="card"><h3 style="margin-top:0">Warehouses</h3><form id="fw">${field('warehouse_name','Name','text','required')}${field('location','Location','text','required')}${field('capacity','Capacity (units)','number','min=1 required')}<button class="btn">Add</button></form>${table([['Name','warehouse_name'],['Location','location'],['Capacity','capacity','n']],w)}</div>
+ <div class="card"><h3 style="margin-top:0">Suppliers</h3><form id="fs">${field('supplier_name','Name','text','required')}${field('contact_email','Email','email','required')}${field('phone','Phone')}<button class="btn">Add</button></form>${table([['Name','supplier_name'],['Email','contact_email'],['Phone','phone']],s)}</div>
+ <div class="card"><h3 style="margin-top:0">Categories</h3><form id="fc">${field('category_name','Name','text','required')}${field('description','Description')}<button class="btn">Add</button></form>${table([['Name','category_name'],['Description','description']],c)}</div>`,
+ bind(){[['#fw','/warehouses'],['#fs','/suppliers'],['#fc','/categories']].forEach(([id,u])=>onSubmit(id,async d=>{await api(u,d);toast('Saved');go('Setup')}))}}}
+};
+async function go(name){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.textContent===name));
+ try{const v=await views[name]();const html=typeof v==='string'?v:v.html;$('#main').innerHTML=html;v.bind&&v.bind()}catch(e){$('#main').innerHTML=`<h2>${name}</h2><div class="card">Could not load: ${esc(e.message)}. Is the server running and DATABASE_URL correct?</div>`}}
+$('#tabs').innerHTML=Object.keys(views).map(n=>`<button>${n}</button>`).join('');
+$('#tabs').onclick=e=>e.target.tagName==='BUTTON'&&go(e.target.textContent);go('Dashboard');
+</script></body></html>
